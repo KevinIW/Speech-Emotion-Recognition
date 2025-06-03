@@ -1,3 +1,5 @@
 /train
 /test
 /checkpoints
+/frontend
+.env
