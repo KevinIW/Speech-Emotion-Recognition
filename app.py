@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import librosa
 import soundfile as sf
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -101,9 +101,9 @@ else:
 e_labels = {"marah": 0, "jijik": 1, "takut": 2, "bahagia": 3, "netral": 4, "sedih": 5}
 inv_map = {v: k for k, v in e_labels.items()}
 
-# Model checkpoint
-checkpoint = "ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition"
-model_path = "checkpoints/emotion_model.pth"  
+# Model checkpoint - update to the new model repository
+checkpoint = os.environ.get("HF_MODEL_REPO", "Miracle12345/Speech-Emotion-Recognition")
+model_path = os.environ.get("LOCAL_MODEL_PATH", "checkpoints/emotion_model.pth")
 
 # Define lifespan context manager for FastAPI (modern way to handle startup/shutdown)
 @asynccontextmanager
@@ -129,14 +129,59 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Add your frontend URL here
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Add rate limiting with slowapi
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.responses import JSONResponse
+
+# Create limiter instance with default key function
+limiter = Limiter(key_func=get_remote_address)
+
+# Add limiter to app state
+app.state.limiter = limiter
+
+# Add rate limit exceeded handler
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request, exc):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests, please try again later."}
+    )
+
+# Enable CORS with more restrictive settings
+# Read allowed origins from environment variable
+allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000")
+allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
+
+# For development/initial deployment, temporarily allow broader CORS
+# This helps during the transition before you know the exact frontend URL
+allow_all = os.environ.get("ALLOW_ALL_ORIGINS", "false").lower() == "true"
+
+if allow_all or os.environ.get("ENVIRONMENT") == "development":
+    logger.warning("⚠️ CORS configured to allow all origins or in development mode.")
+    origins = ["*"] if allow_all else allowed_origins
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "Authorization"],
+    )
+else:
+    logger.info(f"CORS configured to allow specific origins: {allowed_origins}")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "Authorization"],
+    )
+
+# Add HTTPS redirect in production
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
+if os.environ.get("ENVIRONMENT") == "production":
+    app.add_middleware(HTTPSRedirectMiddleware)
 
 # Create a cached model singleton class
 class ModelCache:
@@ -150,39 +195,105 @@ class ModelCache:
         if cls._model is None and not cls._is_loading:
             cls._is_loading = True
             try:
-                logger.info("Loading feature extractor...")
-                cls._feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(checkpoint)
+                # Check if we should try loading from a local path first
+                use_local = os.environ.get("USE_LOCAL_MODEL", "false").lower() == "true"
                 
-                logger.info(f"Loading model from {model_path}...")
-                # Check if model file exists
-                if not os.path.exists(model_path):
-                    logger.warning(f"Model file not found at {model_path}. Using base model.")
-                    # First create model instance with the right architecture
-                    cls._model = AutoModelForAudioClassification.from_pretrained(
-                        checkpoint,
-                        num_labels=6  # 6 emotions
-                    )
-                else:
-                    # First create model instance with the right architecture
-                    cls._model = AutoModelForAudioClassification.from_pretrained(
-                        checkpoint,
-                        num_labels=6  # 6 emotions
-                    )
+                # First, try to load the feature extractor
+                try:
+                    logger.info("Loading feature extractor...")
+                    # Use the fallback checkpoint if configured
+                    fallback_checkpoint = "ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition"
                     
                     try:
-                        # Load state dictionary
-                        state_dict = torch.load(model_path, map_location=torch.device('cpu'))
-                        cls._model.load_state_dict(state_dict)
-                        logger.info(f"Loaded saved model parameters from {model_path}")
+                        cls._feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(checkpoint)
+                        logger.info(f"Feature extractor loaded from {checkpoint}")
                     except Exception as e:
-                        logger.error(f"Error loading model state: {e}")
-                        logger.info("Using base model without fine-tuning")
+                        logger.warning(f"Failed to load feature extractor from {checkpoint}: {e}")
+                        logger.info(f"Attempting to load feature extractor from fallback: {fallback_checkpoint}")
+                        cls._feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(fallback_checkpoint)
+                        logger.info(f"Feature extractor loaded from fallback {fallback_checkpoint}")
+                except Exception as e:
+                    logger.error(f"Error loading feature extractor: {e}")
+                    raise
+                
+                # Now, handle model loading with priority based on USE_LOCAL_MODEL
+                if use_local:
+                    logger.info("USE_LOCAL_MODEL is set to true, trying local model first")
+                    
+                    if os.path.exists(model_path):
+                        try:
+                            # Load model architecture (try both checkpoints)
+                            try:
+                                logger.info(f"Loading model architecture from {checkpoint}")
+                                cls._model = AutoModelForAudioClassification.from_pretrained(
+                                    checkpoint,
+                                    num_labels=6  # 6 emotions
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to load model architecture from {checkpoint}: {e}")
+                                logger.info(f"Attempting to load model architecture from fallback: {fallback_checkpoint}")
+                                cls._model = AutoModelForAudioClassification.from_pretrained(
+                                    fallback_checkpoint,
+                                    num_labels=6  # 6 emotions
+                                )
+                            
+                            # Load state dictionary from local file
+                            logger.info(f"Loading weights from local file: {model_path}")
+                            state_dict = torch.load(model_path, map_location=torch.device('cpu'))
+                            cls._model.load_state_dict(state_dict)
+                            logger.info(f"Successfully loaded model from local file {model_path}")
+                        except Exception as e:
+                            logger.error(f"Error loading local model: {e}")
+                            logger.info("Falling back to Hugging Face model")
+                            # Try loading from Hugging Face (both checkpoints)
+                            try:
+                                cls._model = AutoModelForAudioClassification.from_pretrained(
+                                    checkpoint,
+                                    num_labels=6  # 6 emotions
+                                )
+                            except Exception as hf_error:
+                                logger.warning(f"Failed to load from {checkpoint}: {hf_error}")
+                                logger.info(f"Attempting to load from fallback: {fallback_checkpoint}")
+                                cls._model = AutoModelForAudioClassification.from_pretrained(
+                                    fallback_checkpoint,
+                                    num_labels=6  # 6 emotions
+                                )
+                    else:
+                        logger.warning(f"Local model path {model_path} not found, loading from Hugging Face")
+                        # Try loading from Hugging Face (both checkpoints)
+                        try:
+                            cls._model = AutoModelForAudioClassification.from_pretrained(
+                                checkpoint,
+                                num_labels=6  # 6 emotions
+                            )
+                        except Exception as hf_error:
+                            logger.warning(f"Failed to load from {checkpoint}: {hf_error}")
+                            logger.info(f"Attempting to load from fallback: {fallback_checkpoint}")
+                            cls._model = AutoModelForAudioClassification.from_pretrained(
+                                fallback_checkpoint,
+                                num_labels=6  # 6 emotions
+                            )
+                else:
+                    # Try loading directly from Hugging Face (both checkpoints)
+                    logger.info("Attempting to load model from Hugging Face")
+                    try:
+                        cls._model = AutoModelForAudioClassification.from_pretrained(
+                            checkpoint,
+                            num_labels=6  # 6 emotions
+                        )
+                    except Exception as hf_error:
+                        logger.warning(f"Failed to load from {checkpoint}: {hf_error}")
+                        logger.info(f"Attempting to load from fallback: {fallback_checkpoint}")
+                        cls._model = AutoModelForAudioClassification.from_pretrained(
+                            fallback_checkpoint,
+                            num_labels=6  # 6 emotions
+                        )
                 
                 # Set model to evaluation mode
                 cls._model.eval()
                 logger.info("Model and feature extractor loaded successfully!")
             except Exception as e:
-                logger.error(f"Error loading model: {e}")
+                logger.error(f"Fatal error loading model: {e}")
                 cls._is_loading = False
                 raise e
             cls._is_loading = False
@@ -207,9 +318,10 @@ async def root() -> Dict[str, Any]:
     """Health check endpoint"""
     return {"status": "online", "message": "Speech Emotion Recognition API is running"}
 
-# Simple latency test endpoint
+# Simple latency test endpoint with rate limiting
 @app.get("/ping")
-async def ping() -> Dict[str, Any]:
+@limiter.limit("10/minute")  # Allow 10 pings per minute
+async def ping(request: Request) -> Dict[str, Any]:
     """Simple endpoint to test API latency"""
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
@@ -270,7 +382,8 @@ async def save_to_supabase(file_content: bytes, file_name: str, content_type: st
         return None, None
 
 @app.post("/predict", response_model=PredictionResponse)
-async def predict_emotion(file: UploadFile = File(...)) -> PredictionResponse:
+@limiter.limit("30/minute")  # Allow 30 predictions per minute
+async def predict_emotion(request: Request, file: UploadFile = File(...)) -> PredictionResponse:
     """
     Predict emotion from an audio file
     
@@ -278,13 +391,35 @@ async def predict_emotion(file: UploadFile = File(...)) -> PredictionResponse:
     
     Returns predicted emotion, confidence score, and probability distribution
     """
+    # Enhanced input validation
+    # 1. Check content type
+    valid_content_types = ["audio/wav", "audio/mpeg", "audio/ogg", "audio/x-wav"]
+    if file.content_type and file.content_type not in valid_content_types:
+        raise HTTPException(status_code=400, 
+                           detail=f"Invalid content type: {file.content_type}. Expected audio file.")
+    
+    # 2. Check file extension more precisely
+    valid_extensions = ('.wav', '.mp3', '.ogg')
+    if not any(file.filename.lower().endswith(ext) for ext in valid_extensions):
+        raise HTTPException(status_code=400, 
+                          detail=f"Invalid file extension. Supported formats: {', '.join(valid_extensions)}")
+    
+    # 3. Read file content ONLY ONCE
+    content = await file.read()
+    file_size = len(content)
+    max_size = 10 * 1024 * 1024  # 10 MB
+    
+    if file_size > max_size:
+        raise HTTPException(status_code=413, 
+                          detail=f"File too large. Maximum size is {max_size // (1024 * 1024)}MB")
+    
     # Create a Sentry transaction for monitoring this endpoint's performance
     with sentry_sdk.start_transaction(op="http.server", name="POST /predict"):
         # Add context information to Sentry
         sentry_sdk.set_context("file_info", {
             "filename": file.filename,
             "content_type": file.content_type,
-            "size": file.size if hasattr(file, "size") else "unknown"
+            "size": file_size
         })
         
         # Get the model and feature extractor (loads on first request)
@@ -294,21 +429,40 @@ async def predict_emotion(file: UploadFile = File(...)) -> PredictionResponse:
         except Exception as e:
             sentry_sdk.capture_exception(e)
             raise HTTPException(status_code=500, detail=f"Model loading failed: {str(e)}")
-        
-        # Validate file
-        if not file.filename.endswith(('.wav', '.mp3', '.ogg')):
-            raise HTTPException(status_code=400, detail="Only WAV, MP3, and OGG audio files are supported")
     
         try:
-            # Read audio file - just read once
-            content = await file.read()
+            # Make a fresh BytesIO object for processing
             audio_bytes = io.BytesIO(content)
+            audio_bytes.seek(0)  # Important: reset position to beginning of file
             
-            # Process for inference first, then save to Supabase
-            audio_bytes_copy = io.BytesIO(content)  # Make a copy for Supabase
-            
-            # Load audio using soundfile
-            speech, sr = sf.read(audio_bytes)
+            # Try different approaches to load the audio
+            try:
+                # First try using soundfile
+                speech, sr = sf.read(audio_bytes)
+            except Exception as sf_error:
+                logger.warning(f"Failed to read with soundfile: {sf_error}. Trying librosa...")
+                
+                # If soundfile fails, try librosa (more robust but slower)
+                # We need to save to a temporary file for librosa
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+                    temp_path = temp_file.name
+                    temp_file.write(content)
+                
+                try:
+                    speech, sr = librosa.load(temp_path, sr=None)
+                    logger.info(f"Successfully loaded audio with librosa, sr={sr}")
+                    # Clean up temp file
+                    os.unlink(temp_path)
+                except Exception as librosa_error:
+                    # Clean up temp file if it exists
+                    if os.path.exists(temp_path):
+                        os.unlink(temp_path)
+                    logger.error(f"Failed to read with librosa: {librosa_error}")
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Could not process audio file. Make sure it's a valid audio format."
+                    )
             
             # Limit audio length to 10 seconds max for faster processing
             max_samples = 10 * 16000  # 10 seconds at 16kHz
@@ -352,15 +506,14 @@ async def predict_emotion(file: UploadFile = File(...)) -> PredictionResponse:
             # Create probability dictionary
             prob_dict = {inv_map[i]: float(probabilities[i]) for i in range(len(probabilities))}
             
-            # Save to Supabase
+            # Save to Supabase - Use the original content
             file_id = None
             storage_path = None
             
             if supabase:
                 logger.info("Attempting to save file to Supabase...")
-                audio_bytes_copy = io.BytesIO(content)
                 file_id, storage_path = await save_to_supabase(
-                    audio_bytes_copy.getvalue(), 
+                    content,  # Use the original content directly 
                     file.filename, 
                     file.content_type
                 )

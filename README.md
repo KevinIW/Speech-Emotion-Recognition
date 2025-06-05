@@ -308,3 +308,47 @@ For detailed API documentation, visit http://localhost:8000/docs when the server
 ### Testing API with Postman
 
 See [POSTMAN_TUTORIAL.md](POSTMAN_TUTORIAL.md) for detailed instructions on testing the API with Postman.
+
+## Using Pre-trained Models from Hugging Face
+
+The application can load models directly from Hugging Face, which is especially useful for deployment environments with memory constraints like Render.
+
+### Using Public Models
+
+To use a public pre-trained model from Hugging Face:
+
+1. Find a suitable emotion recognition model on [Hugging Face](https://huggingface.co/models)
+   - Recommended model: [Miracle12345/Speech-Emotion-Recognition](https://huggingface.co/Miracle12345/Speech-Emotion-Recognition)
+
+2. Set the `HF_MODEL_REPO` environment variable to the model path:
+   ```
+   HF_MODEL_REPO=Miracle12345/Speech-Emotion-Recognition
+   ```
+
+3. Ensure `USE_LOCAL_MODEL` is set to `false` to always load from Hugging Face:
+   ```
+   USE_LOCAL_MODEL=false
+   ```
+
+4. The application will automatically download and use the model from Hugging Face.
+
+### Using Private Models
+
+For private models, you'll need to:
+
+1. Generate a read token at https://huggingface.co/settings/tokens
+2. Add your token to the environment variables:
+   ```
+   HF_TOKEN=your_huggingface_token_here
+   ```
+
+### Deploying with Hugging Face Models
+
+When deploying to platforms like Render:
+
+1. Set the environment variables in your deployment platform:
+   - `HF_MODEL_REPO`: Your chosen model path
+   - `USE_LOCAL_MODEL`: Set to "false"
+   - `HF_TOKEN`: Only if using a private model
+
+2. The application will load the model directly from Hugging Face, avoiding the need to store large model files in your deployment.
