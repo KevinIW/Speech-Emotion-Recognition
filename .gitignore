@@ -3,3 +3,4 @@
 /checkpoints
 /frontend
 .env
+__pycache__
