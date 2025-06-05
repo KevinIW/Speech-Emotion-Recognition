@@ -4,4 +4,3 @@
 /frontend
 .env
 __pycache__
-supabase/
