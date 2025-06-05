@@ -23,6 +23,11 @@ import sys
 import traceback
 import logging
 
+# Import Sentry SDK
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.asyncio import AsyncioIntegration
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +43,40 @@ sys.excepthook = handle_exception
 
 # Load environment variables - force override to ensure latest values
 load_dotenv(override=True)
+
+# Initialize Sentry SDK
+def setup_sentry():
+    env = os.environ.get("ENVIRONMENT", "development")
+    sentry_dsn = os.environ.get("SENTRY_DSN")
+    
+    if sentry_dsn:
+        logger.info(f"Initializing Sentry monitoring in {env} environment")
+        sentry_sdk.init(
+            dsn=sentry_dsn,
+            environment=env,
+            # Add data like request headers and IP for users
+            send_default_pii=True,
+            # Set traces_sample_rate to capture transactions for performance monitoring
+            # Lower this in production for high-traffic apps
+            traces_sample_rate=1.0 if env == "development" else 0.2,
+            # Profile sessions for performance insights
+            profile_session_sample_rate=1.0 if env == "development" else 0.2,
+            # Automatically run the profiler on active transactions
+            profile_lifecycle="trace",
+            # Enable FastAPI and AsyncIO integrations
+            integrations=[
+                FastApiIntegration(),
+                AsyncioIntegration(),
+            ],
+            # Set a custom release identifier
+            release="speech-emotion-recognition@1.0.0",
+        )
+        logger.info("Sentry monitoring initialized successfully")
+    else:
+        logger.warning("Sentry DSN not provided in environment variables, monitoring disabled")
+
+# Setup Sentry before application start
+setup_sentry()
 
 # Initialize Supabase client
 supabase_url = os.environ.get("SUPABASE_URL")
@@ -69,15 +108,18 @@ model_path = "checkpoints/emotion_model.pth"
 # Define lifespan context manager for FastAPI (modern way to handle startup/shutdown)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Load model and feature extractor
+    # Startup: Log application startup to Sentry
     logger.info("API server starting up...")
-    # No preloading of model - will be loaded on first request
+    with sentry_sdk.start_transaction(op="startup", name="Application Startup"):
+        # No preloading of model - will be loaded on first request
+        pass
     yield
     # Shutdown: Clean up resources
     logger.info("API server shutting down...")
-    # Release model resources
-    global model
-    model = None  # Free memory
+    with sentry_sdk.start_transaction(op="shutdown", name="Application Shutdown"):
+        # Release model resources
+        global model
+        model = None  # Free memory
 
 # Create FastAPI app with lifespan
 app = FastAPI(
@@ -236,110 +278,131 @@ async def predict_emotion(file: UploadFile = File(...)) -> PredictionResponse:
     
     Returns predicted emotion, confidence score, and probability distribution
     """
-    # Get the model and feature extractor (loads on first request)
-    try:
-        model, feature_extractor = await ModelCache.get_model()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Model loading failed: {str(e)}")
+    # Create a Sentry transaction for monitoring this endpoint's performance
+    with sentry_sdk.start_transaction(op="http.server", name="POST /predict"):
+        # Add context information to Sentry
+        sentry_sdk.set_context("file_info", {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size": file.size if hasattr(file, "size") else "unknown"
+        })
         
-    # Validate file
-    if not file.filename.endswith(('.wav', '.mp3', '.ogg')):
-        raise HTTPException(status_code=400, detail="Only WAV, MP3, and OGG audio files are supported")
+        # Get the model and feature extractor (loads on first request)
+        try:
+            with sentry_sdk.start_span(op="model.load", description="Load ML model"):
+                model, feature_extractor = await ModelCache.get_model()
+        except Exception as e:
+            sentry_sdk.capture_exception(e)
+            raise HTTPException(status_code=500, detail=f"Model loading failed: {str(e)}")
+        
+        # Validate file
+        if not file.filename.endswith(('.wav', '.mp3', '.ogg')):
+            raise HTTPException(status_code=400, detail="Only WAV, MP3, and OGG audio files are supported")
     
-    try:
-        # Read audio file - just read once
-        content = await file.read()
-        audio_bytes = io.BytesIO(content)
-        
-        # Process for inference first, then save to Supabase
-        audio_bytes_copy = io.BytesIO(content)  # Make a copy for Supabase
-        
-        # Load audio using soundfile
-        speech, sr = sf.read(audio_bytes)
-        
-        # Limit audio length to 10 seconds max for faster processing
-        max_samples = 10 * 16000  # 10 seconds at 16kHz
-        if len(speech) > max_samples:
-            speech = speech[:max_samples]
-        
-        # Resample if needed
-        if sr != 16000:
-            speech = librosa.resample(
-                speech, 
-                orig_sr=sr, 
-                target_sr=16000
-            )
-            sr = 16000
-        
-        # Convert stereo to mono if needed
-        if len(speech.shape) > 1:
-            speech = np.mean(speech, axis=1)
-        
-        # Process audio with feature extractor
-        inputs = feature_extractor(
-            speech,
-            sampling_rate=16000,
-            return_tensors="pt",
-            padding=True
-        )
-        
-        # Run inference
-        with torch.no_grad():
-            outputs = model(**inputs)
-        
-        # Get predictions
-        logits = outputs.logits.cpu().numpy()[0]
-        probabilities = torch.nn.functional.softmax(torch.tensor(logits), dim=0).numpy()
-        pred_idx = np.argmax(probabilities)
-        pred_emotion = inv_map[pred_idx]
-        confidence = float(probabilities[pred_idx])
-        
-        # Create probability dictionary
-        prob_dict = {inv_map[i]: float(probabilities[i]) for i in range(len(probabilities))}
-        
-        # Save to Supabase
-        file_id = None
-        storage_path = None
-        
-        if supabase:
-            logger.info("Attempting to save file to Supabase...")
-            audio_bytes_copy = io.BytesIO(content)
-            file_id, storage_path = await save_to_supabase(
-                audio_bytes_copy.getvalue(), 
-                file.filename, 
-                file.content_type
+        try:
+            # Read audio file - just read once
+            content = await file.read()
+            audio_bytes = io.BytesIO(content)
+            
+            # Process for inference first, then save to Supabase
+            audio_bytes_copy = io.BytesIO(content)  # Make a copy for Supabase
+            
+            # Load audio using soundfile
+            speech, sr = sf.read(audio_bytes)
+            
+            # Limit audio length to 10 seconds max for faster processing
+            max_samples = 10 * 16000  # 10 seconds at 16kHz
+            if len(speech) > max_samples:
+                speech = speech[:max_samples]
+            
+            # Resample if needed
+            if sr != 16000:
+                speech = librosa.resample(
+                    speech, 
+                    orig_sr=sr, 
+                    target_sr=16000
+                )
+                sr = 16000
+            
+            # Convert stereo to mono if needed
+            if len(speech.shape) > 1:
+                speech = np.mean(speech, axis=1)
+            
+            # Process audio with feature extractor
+            inputs = feature_extractor(
+                speech,
+                sampling_rate=16000,
+                return_tensors="pt",
+                padding=True
             )
             
-            logger.info(f"Supabase save result: file_id={file_id}, storage_path={storage_path}")
+            # Track model inference with Sentry
+            with sentry_sdk.start_span(op="model.inference", description="Run inference"):
+                # Run inference
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                
+                # Get predictions
+                logits = outputs.logits.cpu().numpy()[0]
+                probabilities = torch.nn.functional.softmax(torch.tensor(logits), dim=0).numpy()
+                pred_idx = np.argmax(probabilities)
+                pred_emotion = inv_map[pred_idx]
+                confidence = float(probabilities[pred_idx])
+        
+            # Create probability dictionary
+            prob_dict = {inv_map[i]: float(probabilities[i]) for i in range(len(probabilities))}
             
-            # If we have a file_id, save the prediction too
-            if file_id:
-                try:
-                    prediction_data = {
-                        "audio_file_id": file_id,
-                        "emotion": pred_emotion,
-                        "confidence": confidence,
-                        "probabilities": prob_dict,
-                        "created_at": datetime.now().isoformat()
-                    }
-                    logger.info("Saving prediction to database")
-                    prediction_response = supabase.table("predictions").insert(prediction_data).execute()
-                    logger.info("Prediction saved successfully")
-                except Exception as e:
-                    logger.error(f"Error saving prediction to database: {e}")
-        
-        # Return the response with file_id and storage_path if available
-        return PredictionResponse(
-            emotion=pred_emotion,
-            confidence=confidence,
-            probabilities=prob_dict,
-            file_id=file_id if file_id is not None else "",
-            storage_path=storage_path if storage_path is not None else ""
-        )
-        
-    except Exception as e:
-        logger.error(f"Error processing audio: {e}")
-        raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
+            # Save to Supabase
+            file_id = None
+            storage_path = None
+            
+            if supabase:
+                logger.info("Attempting to save file to Supabase...")
+                audio_bytes_copy = io.BytesIO(content)
+                file_id, storage_path = await save_to_supabase(
+                    audio_bytes_copy.getvalue(), 
+                    file.filename, 
+                    file.content_type
+                )
+                
+                logger.info(f"Supabase save result: file_id={file_id}, storage_path={storage_path}")
+                
+                # If we have a file_id, save the prediction too
+                if file_id:
+                    try:
+                        prediction_data = {
+                            "audio_file_id": file_id,
+                            "emotion": pred_emotion,
+                            "confidence": confidence,
+                            "probabilities": prob_dict,
+                            "created_at": datetime.now().isoformat()
+                        }
+                        logger.info("Saving prediction to database")
+                        prediction_response = supabase.table("predictions").insert(prediction_data).execute()
+                        logger.info("Prediction saved successfully")
+                    except Exception as e:
+                        logger.error(f"Error saving prediction to database: {e}")
+            
+            # Add prediction result to Sentry breadcrumbs
+            sentry_sdk.add_breadcrumb(
+                category="prediction",
+                message=f"Predicted emotion: {pred_emotion} with confidence {confidence:.2f}",
+                level="info"
+            )
+            
+            # Return the response with file_id and storage_path if available
+            return PredictionResponse(
+                emotion=pred_emotion,
+                confidence=confidence,
+                probabilities=prob_dict,
+                file_id=file_id if file_id is not None else "",
+                storage_path=storage_path if storage_path is not None else ""
+            )
+            
+        except Exception as e:
+            logger.error(f"Error processing audio: {e}")
+            sentry_sdk.capture_exception(e)
+            raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
 
 if __name__ == "__main__":
     try:
@@ -353,4 +416,5 @@ if __name__ == "__main__":
         )
     except Exception as e:
         logger.error(f"Error starting server: {e}")
+        sentry_sdk.capture_exception(e)
         sys.exit(1)

@@ -10,3 +10,4 @@ transformers>=4.27.3
 supabase>=1.0.3
 python-dotenv>=1.0.0
 uuid>=1.30
+sentry-sdk>=1.35.0
