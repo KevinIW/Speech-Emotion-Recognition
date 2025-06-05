@@ -8,6 +8,7 @@ This project implements a Speech Emotion Recognition (SER) system that can detec
 - [Project Structure](#project-structure)
 - [Setup and Installation](#setup-and-installation)
 - [Training the Model](#training-the-model)
+- [Supabase Integration](#supabase-integration)
 - [Running the Backend](#running-the-backend)
 - [Running the Frontend](#running-the-frontend)
 - [API Documentation](#api-documentation)
@@ -35,9 +36,12 @@ speech-emotion-recognition-dl-genap-2024-2025/
 ├── app.py                     # FastAPI backend application
 ├── test_api.py                # Script to test the API
 ├── requirements.txt           # Python dependencies
+├── .env                       # Environment variables
 ├── ser-ehcalabres.ipynb       # Jupyter notebook for model training
 ├── checkpoints/               # Directory for storing model checkpoints
 │   └── emotion_model.pth      # Trained model weights
+├── supabase/                  # Supabase configuration files
+│   └── tables.sql             # SQL script to create Supabase tables
 ├── frontend/                  # Next.js frontend application
 └── POSTMAN_TUTORIAL.md        # Guide for testing API with Postman
 ```
@@ -50,6 +54,7 @@ speech-emotion-recognition-dl-genap-2024-2025/
 - Node.js 14+
 - npm or yarn
 - Git
+- Supabase account
 
 ### Clone the Repository
 
@@ -98,6 +103,55 @@ pip install -r requirements.txt
    # If you have a download link
    wget -O checkpoints/emotion_model.pth https://your-model-download-link.com/emotion_model.pth
    ```
+
+## Supabase Integration
+
+This project uses Supabase for storing audio files and prediction results.
+
+### Setting Up Supabase
+
+1. **Create a Supabase account**
+   - Sign up at [supabase.com](https://supabase.com/)
+   - Create a new project
+
+2. **Create a storage bucket**
+   - Go to Storage in the Supabase dashboard
+   - Create a new bucket called `audio_files`
+   - Set the bucket's privacy to private
+
+3. **Create database tables**
+   - Go to the SQL Editor in the Supabase dashboard
+   - Run the SQL script from `supabase/tables.sql`
+   - Or manually create the `audio_files` and `predictions` tables
+
+4. **Get your API credentials**
+   - Go to Project Settings → API
+   - Copy the URL and the anon/public key
+
+5. **Set up environment variables**
+   - Create a `.env` file in the project root
+   - Add the following variables:
+     ```
+     SUPABASE_URL=your_supabase_url
+     SUPABASE_KEY=your_supabase_anon_key
+     SUPABASE_BUCKET=audio_files
+     ```
+
+### Testing Supabase Integration
+
+To verify that Supabase is properly configured:
+
+1. Run the FastAPI server:
+   ```bash
+   python app.py
+   ```
+
+2. Use the `/predict` endpoint to upload an audio file
+   - The file should be saved to Supabase storage
+   - File metadata should be stored in the `audio_files` table
+   - Prediction results should be stored in the `predictions` table
+
+3. Check the Supabase dashboard to confirm the data was saved correctly
 
 ## Running the Backend
 
@@ -149,7 +203,7 @@ The API provides the following endpoints:
 - `GET /`: Health check endpoint
 - `POST /predict`: Predict emotion from an audio file
   - Input: Form data with a file field named "file" containing the audio file (WAV, MP3, OGG)
-  - Output: JSON response with predicted emotion, confidence, and probabilities
+  - Output: JSON response with predicted emotion, confidence, probabilities, and file storage information
 
 For detailed API documentation, visit http://localhost:8000/docs when the server is running.
 
@@ -177,8 +231,11 @@ For detailed API documentation, visit http://localhost:8000/docs when the server
      - **Start Command**: `uvicorn app:app --host 0.0.0.0 --port $PORT`
      - **Plan**: Choose Free (for testing) or other plan as needed
 
-4. **Add Environment Variables (if needed)**
-   - If you need to configure any environment variables, add them in the "Environment" section
+4. **Add Environment Variables**
+   - Add your Supabase environment variables:
+     - `SUPABASE_URL`
+     - `SUPABASE_KEY`
+     - `SUPABASE_BUCKET`
 
 5. **Deploy**
    - Click "Create Web Service"
@@ -235,11 +292,18 @@ For detailed API documentation, visit http://localhost:8000/docs when the server
 - **Model loading fails**: Ensure the model file exists at `checkpoints/emotion_model.pth`
 - **CORS errors**: Make sure the frontend URL is added to the CORS allowed origins in `app.py`
 - **Memory issues on Render**: Use a paid plan with more memory if you encounter OOM errors
+- **Supabase connection issues**: Verify your environment variables are correct
 
 ### Frontend Issues
 
 - **API connection fails**: Check that the API_URL in `frontend/app/page.tsx` is correct
 - **File upload issues**: Make sure you're using the correct field name ("file") in the upload form
+
+### Supabase Issues
+
+- **Storage errors**: Verify the bucket exists and has the correct permissions
+- **Database errors**: Check that the tables are created correctly
+- **Authentication errors**: Verify your API key has the necessary permissions
 
 ### Testing API with Postman
 
