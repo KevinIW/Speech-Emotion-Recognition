@@ -1,310 +1,222 @@
-# Speech Emotion Recognition System
+# Speech Emotion Recognition
 
-This project implements a Speech Emotion Recognition (SER) system that can detect emotions in Indonesian speech. It consists of a machine learning model trained on audio data, a FastAPI backend for serving predictions, and a Next.js frontend for user interaction.
-
-## Table of Contents
-
-- [Project Overview](#project-overview)
-- [Project Structure](#project-structure)
-- [Setup and Installation](#setup-and-installation)
-- [Training the Model](#training-the-model)
-- [Supabase Integration](#supabase-integration)
-- [Running the Backend](#running-the-backend)
-- [Running the Frontend](#running-the-frontend)
-- [API Documentation](#api-documentation)
-- [Deployment](#deployment)
-  - [Deploying Backend to Render](#deploying-backend-to-render)
-  - [Deploying Frontend to Vercel](#deploying-frontend-to-vercel)
-- [Troubleshooting](#troubleshooting)
+This project implements a deep learning-based speech emotion recognition (SER) system using Wav2Vec2 model. The system is trained to classify emotions in speech audio into six categories: anger, disgust, fear, happiness, neutral, and sadness.
 
 ## Project Overview
 
-This system can identify six different emotions in Indonesian speech:
-- marah (angry)
-- jijik (disgust)
-- takut (fear)
-- bahagia (happy)
-- netral (neutral)
-- sedih (sad)
+Speech Emotion Recognition (SER) is the task of recognizing human emotions from speech signals. This project uses a fine-tuned Wav2Vec2 model to classify emotions in speech recordings. The model is trained on an Indonesian speech emotion dataset and evaluated on the RAVDESS dataset to test cross-lingual generalization capabilities.
 
-The model is based on Wav2Vec2, fine-tuned on a dataset of Indonesian speech samples.
+## Model Architecture
 
-## Project Structure
+The model is based on the `ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition` checkpoint, which is a Wav2Vec2 model pre-trained on multilingual speech data and fine-tuned for emotion recognition. The architecture includes:
+
+- Wav2Vec2 feature extraction for processing audio signals
+- Classification head with 6 output classes for emotion prediction
+- The model processes raw audio waveforms directly without requiring manual feature extraction
+
+## Training Process
+
+The model was trained with the following configuration:
+- Training epochs: 6
+- Batch size: 8
+- Optimizer: AdamW
+- Loss function: Cross-entropy loss
+- Evaluation metric: Accuracy
+
+During training, the model learned to recognize the following emotions in Indonesian:
+- `marah` (anger)
+- `jijik` (disgust)
+- `takut` (fear)
+- `bahagia` (happiness)
+- `netral` (neutral)
+- `sedih` (sadness)
+
+## Dataset Information
+
+### Training Dataset
+The model was trained on an Indonesian speech emotion dataset with the following distribution:
+
+![Training Dataset Distribution](images/train_distribution.png)
+
+Emotion Distribution:
+
+Training Dataset:
+- bahagia: 1191 samples (17.52%)
+- jijik: 1117 samples (16.43%)
+- marah: 1190 samples (17.51%)
+- netral: 958 samples (14.09%)
+- sedih: 1192 samples (17.53%)
+- takut: 1150 samples (16.92%)
+
+### Test Dataset (RAVDESS)
+The model was evaluated on the Ryerson Audio-Visual Database of Emotional Speech and Song (RAVDESS), which contains recordings of different actors expressing various emotions. For evaluation, we used recordings from 6 actors (3 male, 3 female):
+- Actor 01 (male)
+- Actor 02 (female)
+- Actor 08 (female)
+- Actor 11 (male)
+- Actor 15 (male)
+- Actor 22 (female)
+
+The RAVDESS dataset contains emotions that map to our model's classes as follows:
+- "neutral" → "netral"
+- "happy" → "bahagia"
+- "sad" → "sedih"
+- "angry" → "marah"
+- "fearful" → "takut"
+- "disgust" → "jijik"
+- "calm" and "surprised" don't map directly to our model's classes
+
+## Model Evaluation Results
+
+### Overall Performance on RAVDESS Dataset
+
+The model was evaluated on recordings from 6 actors, achieving the following performance:
+
+![Combined Results Analysis](images/Combined_Results_analysis.png)
+
+Key findings:
+- Overall accuracy on mappable emotions: ~60%
+- The model performed better on speech recordings than song recordings
+- Strong emotional intensity was generally recognized with higher accuracy than normal intensity
+
+### Per-Actor Analysis
+
+#### Actor 01 (Male)
+![Actor 01 Analysis](images/Actor_Actor_01_analysis.png)
+
+#### Actor 02 (Female)
+![Actor 02 Analysis](images/Actor_Actor_02_analysis.png)
+
+#### Actor 08 (Female)
+![Actor 08 Analysis](images/Actor_Actor_08_analysis.png)
+
+#### Actor 11 (Male)
+![Actor 11 Analysis](images/Actor_Actor_11_analysis.png)
+
+#### Actor 15 (Male)
+![Actor 15 Analysis](images/Actor_Actor_15_analysis.png)
+
+#### Actor 22 (Female)
+![Actor 22 Analysis](images/Actor_Actor_22_analysis.png)
+
+### Interesting Observations
+
+1. **Cross-lingual Transfer:** Despite being trained on Indonesian speech, the model showed reasonable performance on English speech from the RAVDESS dataset.
+
+2. **Emotion Confusion:**
+   - The "calm" emotion (not in training set) was most often classified as "netral" (neutral)
+   - The "surprised" emotion was frequently classified as "takut" (fear) or "bahagia" (happiness)
+
+3. **Gender Differences:** The model showed slight variations in performance between male and female speakers.
+
+4. **Speech vs. Song:** The model performed better on spoken emotional content compared to sung emotional content.
+
+5. **Intensity Impact:** Strong emotional expressions were generally recognized more accurately than subtle ones.
+
+## Model Inference Examples
+
+### Training Data Inference
+
+The model demonstrated strong performance on the training data:
 
 ```
-speech-emotion-recognition-dl-genap-2024-2025/
-├── app.py                     # FastAPI backend application
-├── test_api.py                # Script to test the API
-├── requirements.txt           # Python dependencies
-├── .env                       # Environment variables
-├── ser-ehcalabres.ipynb       # Jupyter notebook for model training
-├── checkpoints/               # Directory for storing model checkpoints
-│   └── emotion_model.pth      # Trained model weights
-├── supabase/                  # Supabase configuration files
-│   └── tables.sql             # SQL script to create Supabase tables
-├── frontend/                  # Next.js frontend application
-└── POSTMAN_TUTORIAL.md        # Guide for testing API with Postman
+Processing 18 training files...
+
+Training File Inference Results:
+File: 1_05420_sedih_no_data.wav | True: sedih | Predicted: jijik (0.38) ✗
+File: 1_00460_sedih_no_data.wav | True: sedih | Predicted: sedih (0.98) ✓
+File: 1_00642_sedih_no_data.wav | True: sedih | Predicted: sedih (0.99) ✓
+File: 2_07910_jijik_tinggi.wav | True: jijik | Predicted: jijik (1.00) ✓
+File: 1_00438_jijik_no_data.wav | True: jijik | Predicted: jijik (1.00) ✓
+File: 1_06611_jijik_no_data.wav | True: jijik | Predicted: jijik (1.00) ✓
+File: 1_05144_bahagia_no_data.wav | True: bahagia | Predicted: bahagia (1.00) ✓
+File: 1_02994_bahagia_no_data.wav | True: bahagia | Predicted: bahagia (1.00) ✓
+File: 1_06625_bahagia_no_data.wav | True: bahagia | Predicted: bahagia (1.00) ✓
+File: 1_04253_marah_sedang.wav | True: marah | Predicted: marah (1.00) ✓
+File: 2_08017_marah_tinggi.wav | True: marah | Predicted: marah (1.00) ✓
+File: 2_08550_marah_sedang.wav | True: marah | Predicted: marah (1.00) ✓
+File: 1_04729_netral_no_data.wav | True: netral | Predicted: netral (0.98) ✓
+File: 1_01337_netral_no_data.wav | True: netral | Predicted: netral (1.00) ✓
+File: 1_04167_netral_no_data.wav | True: netral | Predicted: netral (1.00) ✓
+File: 1_02337_takut_no_data.wav | True: takut | Predicted: takut (0.99) ✓
+File: 1_00767_takut_no_data.wav | True: takut | Predicted: takut (1.00) ✓
+File: 1_00621_takut_no_data.wav | True: takut | Predicted: takut (0.99) ✓
 ```
 
-## Setup and Installation
+![Training Output Visualization](images/train_output.png)
 
-### Prerequisites
+### Test Data Inference
 
-- Python 3.8+ 
-- Node.js 14+
-- npm or yarn
-- Git
-- Supabase account
+The model was also applied to unlabeled test data:
 
-### Clone the Repository
+```
+Processing 18 test files...
 
-```bash
-git clone https://github.com/yourusername/speech-emotion-recognition-dl-genap-2024-2025.git
-cd speech-emotion-recognition-dl-genap-2024-2025
+Test File Inference Results:
+File: test544.wav | Predicted: sedih (0.92)
+File: test1450.wav | Predicted: sedih (0.99)
+File: test847.wav | Predicted: marah (1.00)
+File: test51.wav | Predicted: jijik (1.00)
+File: test550.wav | Predicted: marah (1.00)
+File: test1648.wav | Predicted: sedih (0.93)
+File: test1075.wav | Predicted: jijik (1.00)
+File: test68.wav | Predicted: bahagia (0.99)
+File: test1004.wav | Predicted: bahagia (0.99)
+File: test1397.wav | Predicted: sedih (0.99)
+File: test266.wav | Predicted: sedih (0.99)
+File: test797.wav | Predicted: marah (1.00)
+File: test1180.wav | Predicted: jijik (1.00)
+File: test1577.wav | Predicted: takut (1.00)
+File: test125.wav | Predicted: bahagia (1.00)
+File: test860.wav | Predicted: marah (1.00)
+File: test54.wav | Predicted: takut (1.00)
+File: test1566.wav | Predicted: takut (0.99)
 ```
 
-### Python Environment Setup
+![Test Output Visualization](images/test_output.png)
 
-```bash
-# Create and activate a virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+### RAVDESS Dataset Inference
 
-# Install dependencies
-pip install -r requirements.txt
+The model can process RAVDESS audio files and predict emotions with corresponding confidence scores:
+
+```
+File: 03-01-01-01-01-01-01.wav | True: happy     | Pred: bahagia   | ✓
+File: 03-01-01-01-01-02-01.wav | True: happy     | Pred: bahagia   | ✓
+File: 03-01-02-01-01-01-01.wav | True: happy     | Pred: netral    | ✗
+File: 03-01-02-01-01-02-01.wav | True: happy     | Pred: bahagia   | ✓
+File: 03-01-03-01-01-01-01.wav | True: happy     | Pred: netral    | ✗
 ```
 
-## Training the Model
+## Usage
 
-### Option 1: Run the Jupyter Notebook
+To use the model for emotion recognition:
 
-1. Open the Jupyter notebook:
-   ```bash
-   jupyter notebook ser-ehcalabres.ipynb
-   ```
+1. Ensure you have the required dependencies installed
+2. Load the pre-trained model
+3. Process audio files to predict emotions
 
-2. Follow the notebook cells to:
-   - Load and analyze the dataset
-   - Train the model
-   - Evaluate the model
-   - Export the model weights
+Example code snippet:
+```python
+model, device = load_model("checkpoints/emotion_model.pth")
+feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(
+    "ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition"
+)
+emotion, probabilities = predict_emotion(model, feature_extractor, "path/to/audio.wav")
+print(f"Predicted emotion: {emotion}")
+```
 
-3. Make sure the trained model is saved to `checkpoints/emotion_model.pth`
+## Future Work
 
-### Option 2: Use Pre-trained Model
+- Expand the training dataset to include more diverse speakers and languages
+- Add support for more emotion categories
+- Improve model robustness to different recording conditions
+- Develop real-time emotion recognition capabilities
 
-1. Create a `checkpoints` directory if it doesn't exist:
-   ```bash
-   mkdir -p checkpoints
-   ```
+## References
 
-2. Download the pre-trained model and place it in the checkpoints directory:
-   ```bash
-   # If you have a download link
-   wget -O checkpoints/emotion_model.pth https://your-model-download-link.com/emotion_model.pth
-   ```
+- [RAVDESS Dataset](https://zenodo.org/record/1188976)
+- [Wav2Vec2 Model](https://huggingface.co/ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition)
+- [HuggingFace Transformers](https://huggingface.co/docs/transformers/index)
 
-## Supabase Integration
-
-This project uses Supabase for storing audio files and prediction results.
-
-### Setting Up Supabase
-
-1. **Create a Supabase account**
-   - Sign up at [supabase.com](https://supabase.com/)
-   - Create a new project
-
-2. **Create a storage bucket**
-   - Go to Storage in the Supabase dashboard
-   - Create a new bucket called `audio_files`
-   - Set the bucket's privacy to private
-
-3. **Create database tables**
-   - Go to the SQL Editor in the Supabase dashboard
-   - Run the SQL script from `supabase/tables.sql`
-   - Or manually create the `audio_files` and `predictions` tables
-
-4. **Get your API credentials**
-   - Go to Project Settings → API
-   - Copy the URL and the anon/public key
-
-5. **Set up environment variables**
-   - Create a `.env` file in the project root
-   - Add the following variables:
-     ```
-     SUPABASE_URL=your_supabase_url
-     SUPABASE_KEY=your_supabase_anon_key
-     SUPABASE_BUCKET=audio_files
-     ```
-
-### Testing Supabase Integration
-
-To verify that Supabase is properly configured:
-
-1. Run the FastAPI server:
-   ```bash
-   python app.py
-   ```
-
-2. Use the `/predict` endpoint to upload an audio file
-   - The file should be saved to Supabase storage
-   - File metadata should be stored in the `audio_files` table
-   - Prediction results should be stored in the `predictions` table
-
-3. Check the Supabase dashboard to confirm the data was saved correctly
-
-## Running the Backend
-
-1. Make sure the model file exists at `checkpoints/emotion_model.pth`
-
-2. Start the FastAPI server:
-   ```bash
-   python app.py
-   ```
-
-3. The API will be available at http://localhost:8000
-
-4. You can check the API documentation at http://localhost:8000/docs
-
-5. Test the API with the provided test script:
-   ```bash
-   python test_api.py http://localhost:8000 path/to/audio/file.wav
-   ```
-
-## Running the Frontend
-
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   # or
-   yarn install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm run dev
-   # or
-   yarn dev
-   ```
-
-4. The frontend will be available at http://localhost:3000
-
-5. Make sure the backend API is running at http://localhost:8000 (or update the API URL in `frontend/app/page.tsx`)
-
-## API Documentation
-
-The API provides the following endpoints:
-
-- `GET /`: Health check endpoint
-- `POST /predict`: Predict emotion from an audio file
-  - Input: Form data with a file field named "file" containing the audio file (WAV, MP3, OGG)
-  - Output: JSON response with predicted emotion, confidence, probabilities, and file storage information
-
-For detailed API documentation, visit http://localhost:8000/docs when the server is running.
-
-## Deployment
-
-### Deploying Backend to Render
-
-1. **Create a Render account**
-   - Sign up at [render.com](https://render.com/)
-
-2. **Prepare your GitHub repository**
-   - Make sure your code is pushed to a GitHub repository
-   - Ensure the repository contains:
-     - `app.py`
-     - `requirements.txt`
-     - Model file in `checkpoints/emotion_model.pth`
-
-3. **Create a new Web Service**
-   - In the Render dashboard, click "New" and select "Web Service"
-   - Connect your GitHub repository
-   - Configure the service:
-     - **Name**: Choose a name for your service
-     - **Environment**: Python 3
-     - **Build Command**: `pip install -r requirements.txt`
-     - **Start Command**: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-     - **Plan**: Choose Free (for testing) or other plan as needed
-
-4. **Add Environment Variables**
-   - Add your Supabase environment variables:
-     - `SUPABASE_URL`
-     - `SUPABASE_KEY`
-     - `SUPABASE_BUCKET`
-
-5. **Deploy**
-   - Click "Create Web Service"
-   - Wait for the build and deployment to complete
-
-6. **Verify Deployment**
-   - Once deployed, you'll get a URL like `https://your-app-name.onrender.com`
-   - Test the API with:
-     ```bash
-     python test_api.py https://your-app-name.onrender.com path/to/audio/file.wav
-     ```
-
-7. **Handle Model Storage**
-   - For production, consider storing your model in cloud storage (S3, Google Cloud Storage)
-   - Update your code to download the model from cloud storage during startup
-
-### Deploying Frontend to Vercel
-
-1. **Create a Vercel account**
-   - Sign up at [vercel.com](https://vercel.com/)
-
-2. **Prepare your frontend**
-   - Update the API URL in `frontend/app/page.tsx`:
-     ```typescript
-     const API_URL = 'https://your-backend-on-render.onrender.com';
-     ```
-   - Push the changes to your GitHub repository
-
-3. **Import your project**
-   - In the Vercel dashboard, click "Add New" → "Project"
-   - Import your GitHub repository
-   - Configure the project:
-     - **Framework Preset**: Next.js
-     - **Root Directory**: `frontend` (important!)
-
-4. **Environment Variables (if needed)**
-   - Add any environment variables your frontend needs
-
-5. **Deploy**
-   - Click "Deploy"
-   - Wait for the build and deployment to complete
-
-6. **Verify Deployment**
-   - Once deployed, you'll get a URL like `https://your-frontend.vercel.app`
-   - Open the URL in your browser and test the application
-
-7. **Custom Domain (optional)**
-   - In your project settings, you can configure a custom domain
-
-## Troubleshooting
-
-### Backend Issues
-
-- **Model loading fails**: Ensure the model file exists at `checkpoints/emotion_model.pth`
-- **CORS errors**: Make sure the frontend URL is added to the CORS allowed origins in `app.py`
-- **Memory issues on Render**: Use a paid plan with more memory if you encounter OOM errors
-- **Supabase connection issues**: Verify your environment variables are correct
-
-### Frontend Issues
-
-- **API connection fails**: Check that the API_URL in `frontend/app/page.tsx` is correct
-- **File upload issues**: Make sure you're using the correct field name ("file") in the upload form
-
-### Supabase Issues
-
-- **Storage errors**: Verify the bucket exists and has the correct permissions
-- **Database errors**: Check that the tables are created correctly
-- **Authentication errors**: Verify your API key has the necessary permissions
-
-### Testing API with Postman
-
-See [POSTMAN_TUTORIAL.md](POSTMAN_TUTORIAL.md) for detailed instructions on testing the API with Postman.
+## credits
+The pretrained model is made by ehcalabres in huggingface.
