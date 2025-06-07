@@ -218,5 +218,10 @@ print(f"Predicted emotion: {emotion}")
 - [Wav2Vec2 Model](https://huggingface.co/ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition)
 - [HuggingFace Transformers](https://huggingface.co/docs/transformers/index)
 
-## credits
-The pretrained model is made by ehcalabres in huggingface.
+## Credits
+
+- The base pretrained model is made by [ehcalabres](https://huggingface.co/ehcalabres) in HuggingFace
+- Project developed in collaboration with [iqzaardiansyah](https://github.com/iqzaardiansyah)
+- Training dataset provided by [Kaggle competition](https://www.kaggle.com/competitions/speech-emotion-recognition-dl-genap-2024-2025)
+- Our trained model is available on [HuggingFace](https://huggingface.co/Miracle12345/Speech-Emotion-Recognition)
+- Frontend application for this project is available on [GitHub](https://github.com/KevinIW/FE-Speech-Emotion-Recognition)
