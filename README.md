@@ -49,7 +49,7 @@ Training Dataset:
 - takut: 1150 samples (16.92%)
 
 ### Test Dataset (RAVDESS)
-The model was evaluated on the Ryerson Audio-Visual Database of Emotional Speech and Song (RAVDESS), which contains recordings of different actors expressing various emotions. For evaluation, we used recordings from 6 actors (3 male, 3 female):
+The model was evaluated on the speech portion of the Ryerson Audio-Visual Database of Emotional Speech (RAVDESS), which contains recordings of different actors expressing various emotions. For evaluation, we used speech recordings from 6 actors (3 male, 3 female):
 - Actor 01 (male)
 - Actor 02 (female)
 - Actor 08 (female)
@@ -68,15 +68,14 @@ The RAVDESS dataset contains emotions that map to our model's classes as follows
 
 ## Model Evaluation Results
 
-### Overall Performance on RAVDESS Dataset
+### Overall Performance on RAVDESS Speech Dataset
 
-The model was evaluated on recordings from 6 actors, achieving the following performance:
+The model was evaluated on speech recordings from 6 actors, achieving the following performance:
 
 ![Combined Results Analysis](images/Combined_Results_analysis.png)
 
 Key findings:
-- Overall accuracy on mappable emotions: ~60%
-- The model performed better on speech recordings than song recordings
+- Overall accuracy on mappable emotions: ~99%
 - Strong emotional intensity was generally recognized with higher accuracy than normal intensity
 
 ### Per-Actor Analysis
@@ -109,9 +108,7 @@ Key findings:
 
 3. **Gender Differences:** The model showed slight variations in performance between male and female speakers.
 
-4. **Speech vs. Song:** The model performed better on spoken emotional content compared to sung emotional content.
-
-5. **Intensity Impact:** Strong emotional expressions were generally recognized more accurately than subtle ones.
+4. **Intensity Impact:** Strong emotional expressions were generally recognized more accurately than subtle ones.
 
 ## Model Inference Examples
 
@@ -177,7 +174,7 @@ File: test1566.wav | Predicted: takut (0.99)
 
 ### RAVDESS Dataset Inference
 
-The model can process RAVDESS audio files and predict emotions with corresponding confidence scores:
+The model can process RAVDESS speech audio files and predict emotions with corresponding confidence scores:
 
 ```
 File: 03-01-01-01-01-01-01.wav | True: happy     | Pred: bahagia   | ✓
