@@ -172,6 +172,12 @@ File: test1566.wav | Predicted: takut (0.99)
 
 ![Test Output Visualization](images/test_output.png)
 
+The analysis of test data predictions shows the distribution of predicted emotions and the average confidence for each emotion category:
+
+![Test Data Analysis](images/Test_Data_analysis.png)
+
+As shown in the visualization, the model predicts emotions with high confidence across the test dataset, with particularly strong predictions for certain emotion categories.
+
 ### RAVDESS Dataset Inference
 
 The model can process RAVDESS speech audio files and predict emotions with corresponding confidence scores:
